@@ -217,13 +217,17 @@ bash reproduce/gf336_cooled.sh        # high-res variant on a 336-cooled backbon
 
 | script | backbone | res | out_res | hi_ch | batch | result |
 |---|---|---|---|---|---|---|
-| `muplogit_224.sh` | 224 pretrained | 224 | 224 | 64 | 2 | **0.3070** val Dice (ep15/28) |
+| `gf336_revert.sh` | 336-cooled | 336 | 336 | 56 | 2 | **0.3103** (ep16/19) — best single model |
+| `muplogit_224.sh` | 224 pretrained | 224 | 224 | 64 | 2 | 0.3070 (ep15/28) — best 224 |
+| `fast336.sh` | 336-cooled | 336 | 168 | 56 | 4 | 0.2792 (ep15/20) — stride-2 stem, ~2x faster |
+| `fast336_add.sh` | 336-cooled | 336 | 168 | 56 | 2 | not yet run — projected-add skips, for ensemble diversity |
 | `gf336_cooled.sh` | 336-cooled | 336 | 168 | 56 | 3 | 0.2203 (ep7) |
 | `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2646 (final, ep12) |
-| `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 ×3 accum | 0.1397 (ep1, abandoned) |
+| `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 x3 accum | 0.1397 (ep1, abandoned) |
 
-`gf336_cooled.sh` accepts `EXTRA="--txt_head"` for the text-conditioned-output variant; all four
-accept `OUT=` to redirect the run directory, and the 336 scripts also take `BS=` and `EPOCHS=`.
+`gf336_cooled.sh` accepts `EXTRA="--txt_head"` for the text-conditioned-output variant. All scripts
+accept `OUT=` and `SEED=`; `gf336_revert.sh`, `fast336*.sh`, `gf336_hires.sh` and `muplogit_224.sh`
+also take `BS=` and `EPOCHS=`, and `gf336_revert.sh`/`fast336.sh` take `LR=`.
 
 Best result to date is **0.3316**, a 3-model ensemble with test-time augmentation — not a single run.
 The single-model figures above are what these scripts reproduce.

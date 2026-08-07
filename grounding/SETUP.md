@@ -233,7 +233,7 @@ Syntax checks and imports do not prove the training loop runs. Launch the real c
 ## 4. First run
 
 ```bash
-bash reproduce/muplogit_224.sh      # best published single model — val Dice 0.3070 at ep15/28
+bash reproduce/muplogit_224.sh      # val Dice 0.3070 at ep15/28
 ```
 
 Expect roughly **0.10–0.12 at ep1**, crossing **0.25 around ep8**, peaking **0.3070 at ep15**. If ep1 is
@@ -247,12 +247,20 @@ needs both `--init` and the run's `best.pt`**.
 
 | script | backbone | res | out_res | hi_ch | batch | result |
 |---|---|---|---|---|---|---|
-| `muplogit_224.sh` | 224 | 224 | 224 | 64 | 2 | **0.3070** — best single model |
+| `gf336_revert.sh` | 336-cooled | 336 | 336 | 56 | 2 | **0.3103** @ ep16/19 — best single model |
+| `muplogit_224.sh` | 224 | 224 | 224 | 64 | 2 | 0.3070 @ ep15/28 — best 224 |
+| `fast336.sh` | 336-cooled | 336 | 168 | 56 | 4 | 0.2792 @ ep15/20 — ~2x faster per epoch |
+| `fast336_add.sh` | 336-cooled | 336 | 168 | 56 | 2 | not yet run |
 | `gf336_cooled.sh` | 336-cooled | 336 | 168 | 56 | 3 | 0.2203 @ ep7 |
 | `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2646 (final, ep12) |
-| `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 ×3 accum | 0.1397 @ ep1, abandoned |
+| `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 x3 accum | 0.1397 @ ep1, abandoned |
 
-All four take `OUT=` to redirect the run directory; `gf336_cooled.sh` also takes `EXTRA="--txt_head"`.
+All take `OUT=` and `SEED=`; most also take `BS=`/`EPOCHS=`, and `gf336_revert.sh`/`fast336.sh` take
+`LR=`. `gf336_cooled.sh` additionally takes `EXTRA="--txt_head"`.
+
+`muplogit_224.sh` is the recommended FIRST run even though `gf336_revert.sh` scores higher: it needs
+the 60 GB dataset rather than the 195 GB one, and finishes in a fraction of the time. Reproduce it,
+then move to the 336 configs.
 
 Best overall result to date is **0.3316** — a 3-model ensemble with TTA, not a single run.
 
