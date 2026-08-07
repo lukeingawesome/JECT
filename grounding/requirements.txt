@@ -1,0 +1,7 @@
+# Versions this code was developed and validated against. Earlier torch may work but the
+# bf16 autocast paths and adaptive_max_pool3d behaviour are only verified on >=2.4.
+torch>=2.4
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+nibabel>=5.0        # NIfTI I/O + geometry inversion for submission (ject/submission/)
