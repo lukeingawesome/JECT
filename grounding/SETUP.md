@@ -9,7 +9,8 @@ Requires one CUDA GPU. The 224 config needs ~64 GB, the 336 configs ~124 GB.
 
 ## 1. What you need to copy
 
-Five things. Sizes are for the grounding subset only — **you do not need the full pretraining corpus.**
+Seven things to train, and three more if you also want to produce a submission. Sizes are for the
+grounding subset only — **you do not need the full pretraining corpus.**
 
 | # | what | size | where it is now |
 |---|---|---|---|
@@ -52,6 +53,54 @@ This is the one mistake that fails silently rather than loudly:
 Volumes are **centre-cropped** to `--res` at load. Pointing a 224 run at the 384³ data will run
 without error and quietly throw away most of the chest — the crop is in voxels, and at 1.0 mm 224 voxels
 is a 224 mm field of view instead of 384 mm.
+
+### If you also want to produce a submission
+
+Training and validation need nothing beyond the table above. A **challenge submission does**, because
+scoring happens on the original CT grid: `ject/submission/` inverts each prediction back to the
+`.nii.gz` geometry it came from, and it reconstructs that geometry from the original files rather than
+storing it. Three more directories, one file per `case_id`, named `<case_id>.nii.gz` throughout:
+
+| # | what | flag | val | test | where it is now |
+|---|---|---|---|---|---|
+| 8 | original CT | `--orig_dir` | 200 files, 22 GB | 300 files, 33 GB | `/opt/project/miccai/{val,test}/original/` |
+| 9 | TotalSegmentator labels | `--totalseg_dir` | 200, 397 MB | 300, 599 MB | `/opt/project/miccai/{val,test}/totalseg/` |
+| 10 | ReXGrounding masks, **original geometry** | `--rex_dir` / `--gt_dir` | 200, 161 MB | — | `/opt/project/miccai/{val,test}/rexgrounding/` |
+
+**TotalSegmentator is not optional and not obvious.** Grounding never reads it — `dataset.py` loads
+only `ct` and `rex` (the *pretraining* dataset does use it, `ject/data.py:302`). The *inversion* needs it:
+the preprocessing crop was centred on the lung bounding box (labels 10–14), so recovering where the
+`T³` cube was cut from means recomputing that box (`invert.py:73-84`, where the offset becomes the
+affine's translation term). The `totalseg` array inside the `.npz` cannot substitute — it is already
+cropped, so it cannot say where the crop came from. Omit this directory and predictions invert to the
+wrong place in the original volume, with no error.
+
+**The test split has no ground-truth masks** — that is the point of it. `--mode score` therefore works
+only on `val`; for `test` you run `--mode zip` and submit.
+
+### The `.npz` format, if you have to produce it yourself
+
+Three arrays, all `(1, T, T, T)`, one file per `case_id`:
+
+| key | dtype | contents |
+|---|---|---|
+| `ct` | `int16` | Hounsfield units. `gwin()` in `dataset.py` maps them to [0,1] at load |
+| `totalseg` | `uint16` | TotalSegmentator label map. Not read by grounding training; the pretraining dataset cuts anatomy masks from it (`ject/data.py:302`) to drive region masking and the region-JEPA loss |
+| `rex` | `uint16` | ReXGrounding finding masks, index `k` = finding `k` in the CSV's `rex_findings` |
+
+Produced by: reorient to **LPS** → resample to isotropic spacing → crop to `T³` around the lungs
+(TotalSegmentator labels 10–14). Two `(T, spacing)` pairs are in use, covering the same 384 mm field
+of view — `(256, 1.5 mm)` for 224 models and `(384, 1.0 mm)` for 336 models. Pass the matching pair to
+`invert.py`/`pack.py` as `--crop`/`--spacing`; **guessing it from the prediction size is not safe.**
+
+Each preprocessed directory also carries a `preprocessing_metadata.csv` recording, per case, the three
+source `.nii.gz` paths, the original shape and spacing, and the processed shapes. That file is the
+provenance record — check it before assuming a volume was built the way you expect.
+
+> **The preprocessing script itself is not in this repo.** It lives in the tree this package was
+> extracted from. Everything above is enough to reimplement it or to verify an existing `.npz`, and
+> `python -m ject.submission.invert` is the check: it inverts stored ground truth back to the original
+> grid and fails below `--gate` (default 0.85) median Dice on large findings.
 
 ---
 
@@ -153,7 +202,7 @@ needs both `--init` and the run's `best.pt`**.
 |---|---|---|---|---|---|---|
 | `muplogit_224.sh` | 224 | 224 | 224 | 64 | 2 | **0.3070** — best single model |
 | `gf336_cooled.sh` | 336-cooled | 336 | 168 | 56 | 3 | 0.2203 @ ep7 |
-| `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2480 @ ep7, still climbing |
+| `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2646 (final, ep12) |
 | `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 ×3 accum | 0.1397 @ ep1, abandoned |
 
 All four take `OUT=` to redirect the run directory; `gf336_cooled.sh` also takes `EXTRA="--txt_head"`.

@@ -219,7 +219,7 @@ bash reproduce/gf336_cooled.sh        # high-res variant on a 336-cooled backbon
 |---|---|---|---|---|---|---|
 | `muplogit_224.sh` | 224 pretrained | 224 | 224 | 64 | 2 | **0.3070** val Dice (ep15/28) |
 | `gf336_cooled.sh` | 336-cooled | 336 | 168 | 56 | 3 | 0.2203 (ep7) |
-| `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2480 (ep7, still improving) |
+| `gf336_hires.sh` | 336-cooled | 336 | 336 | 56 | 2 | 0.2646 (final, ep12) |
 | `gf336_sepup4.sh` | 336-cooled | 336 | 336 | 56 | 1 ×3 accum | 0.1397 (ep1, abandoned) |
 
 `gf336_cooled.sh` accepts `EXTRA="--txt_head"` for the text-conditioned-output variant; all four
