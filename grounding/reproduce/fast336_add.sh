@@ -30,7 +30,7 @@ cd "$(dirname "$0")/.."
 
 export GF_CUDNN_BENCH="${GF_CUDNN_BENCH:-0}"
 
-python train.py \
+exec python train.py \
   --init "$JECT_INIT" \
   --data_root "$JECT_DATA" --rex_csv "$JECT_REX" --text_emb "$JECT_EMB" \
   --res 336 --out_res 168 --stem_stride2 --skip_fusion add --hi_ch 56 \
@@ -38,5 +38,5 @@ python train.py \
   --predictor_prior --mup_prior s4 --mup_logit \
   --film --deep_sup --use_s4 \
   ${EXTRA:-} \
-  --batch "${BS:-2}" --epochs "${EPOCHS:-20}" --lr 1e-3 --weight_decay 1e-4 --clip 5.0 --seed 0 \
+  --batch "${BS:-2}" --epochs "${EPOCHS:-20}" --lr 1e-3 --weight_decay 1e-4 --clip 5.0 --seed "${SEED:-0}" \
   --out "${OUT:-runs/fast336_add}"

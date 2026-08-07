@@ -32,12 +32,13 @@ cd "$(dirname "$0")/.."
 : "${JECT_EMB:?set JECT_EMB to the phrase-embedding .pt}"
 : "${JECT_INIT:?set JECT_INIT to the 224 pretrained checkpoint}"
 
-python train.py \
+exec python train.py \
   --init "$JECT_INIT" \
   --data_root "$JECT_DATA" --rex_csv "$JECT_REX" --text_emb "$JECT_EMB" \
   --res 224 --out_res 224 --hi_ch 64 \
   --fusion xattn --s2_init pretrained --enc_skips s2 s3 \
   --predictor_prior --mup_prior s4 --mup_logit \
   --film --deep_sup --use_s4 \
-  --batch 2 --epochs 28 --lr 1e-3 --weight_decay 1e-4 --clip 5.0 --seed 0 \
+  ${EXTRA:-} \
+  --batch "${BS:-2}" --epochs "${EPOCHS:-28}" --lr 1e-3 --weight_decay 1e-4 --clip 5.0 --seed "${SEED:-0}" \
   --out "${OUT:-runs/muplogit_224}"

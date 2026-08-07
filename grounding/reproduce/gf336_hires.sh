@@ -34,7 +34,7 @@ cd "$(dirname "$0")/.."
 
 export GF_CUDNN_BENCH="${GF_CUDNN_BENCH:-0}"
 
-python train.py \
+exec python train.py \
   --init "$JECT_INIT" \
   --data_root "$JECT_DATA" --rex_csv "$JECT_REX" --text_emb "$JECT_EMB" \
   --res 336 --out_res 336 --hires_head --hi_ch 56 \

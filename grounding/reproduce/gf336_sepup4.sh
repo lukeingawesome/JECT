@@ -22,7 +22,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 : "${JECT_DATA:?}"; : "${JECT_REX:?}"; : "${JECT_EMB:?}"; : "${JECT_INIT:?}"
 export GF_CUDNN_BENCH="${GF_CUDNN_BENCH:-0}"
-python train.py \
+exec python train.py \
   --init "$JECT_INIT" \
   --data_root "$JECT_DATA" --rex_csv "$JECT_REX" --text_emb "$JECT_EMB" \
   --res 336 --out_res 336 --sep_up4 --hi_ch 56 \

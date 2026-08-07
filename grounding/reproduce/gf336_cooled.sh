@@ -44,7 +44,7 @@ cd "$(dirname "$0")/.."
 # many minutes with no output. Off by default here, on for a fixed 224 input where it pays off.
 export GF_CUDNN_BENCH="${GF_CUDNN_BENCH:-0}"
 
-python train.py \
+exec python train.py \
   --init "$JECT_INIT" \
   ${WARM:+--init_grounding "$WARM"} \
   --data_root "$JECT_DATA" --rex_csv "$JECT_REX" --text_emb "$JECT_EMB" \
