@@ -4,7 +4,7 @@ import torch, torch.nn as nn, torch.nn.functional as F
 
 from ject.backbone.model import ARTJEPAModel, CrossAttention
 from ject.backbone.rope import make_3d_coords
-from ject.decoder import ConvBlock3D, UpBlock3D, SepUpBlock3D
+from ject.decoder import ConvBlock3D, UpBlock3D, SepUpBlock3D, AddUpBlock3D
 
 
 class SpatialTextFuse(nn.Module):
@@ -70,14 +70,26 @@ class TextGroundingJEPA(nn.Module):
     def __init__(self, cfg, out_res=224, fusion="xattn", hi_ch=32, film=False, deep_sup=False,
                  predictor_prior=False, use_s4=False, enc_skips=(), pred_frozen_input=False,
                  mup_prior=None, predictor_prior_s3=False, mup_logit=False, txt_head=False,
-                 hires_head=False, sep_up4=False):
+                 hires_head=False, sep_up4=False, stem_stride2=False, skip_fusion="concat"):
         super().__init__()
         self.out_res = out_res
+        self.stem_stride2 = stem_stride2
         # Input cube side implied by the backbone geometry (grid_s1 * patch). The decoder emits
         # res/2 after up3 and res after up4, so `out_res` is only valid at those two values --
         # gating on a literal 224 silently mismatches at any other input resolution.
         _ps = cfg.patch.patch_size
         self._res = int(cfg.patch.grid_size_s1[0]) * int(_ps[0] if isinstance(_ps, (tuple, list)) else _ps)
+        # --stem_stride2 removes the full-resolution feature map entirely, so any output path that
+        # needs `stem0` as a res-resolution SKIP becomes unbuildable. Fail here rather than at the
+        # first forward, where the symptom would be a None-skip TypeError several minutes into a run.
+        if stem_stride2 and (sep_up4 or (out_res >= self._res and not hires_head)):
+            raise SystemExit(
+                f"--stem_stride2 has no res-resolution skip for a real-conv up4 "
+                f"(out_res={out_res}, res={self._res}, hires_head={hires_head}, sep_up4={sep_up4}). "
+                f"Use --out_res {self._res // 2}, or --out_res {self._res} --hires_head.")
+        if skip_fusion not in ("concat", "add"):
+            raise SystemExit(f"--skip_fusion {skip_fusion} invalid; expected 'concat' or 'add'.")
+        Up = AddUpBlock3D if skip_fusion == "add" else UpBlock3D
         self.fusion = fusion
         self.predictor_prior = predictor_prior
         # ENCODER SKIPS (--enc_skips). Measured on the ep40 checkpoint with a native-grid
@@ -205,14 +217,26 @@ class TextGroundingJEPA(nn.Module):
             self.pred_fuse3 = ConvBlock3D(self.d3 + self.d3, self.d3)
         # UNETR decoder
         self.bottleneck = ConvBlock3D(self.d3, self.d3)
-        self.up1 = UpBlock3D(self.d3, self.d2, self.d2)          # 14->28, skip s2
-        self.up2 = UpBlock3D(self.d2, self.d1, self.d1)          # 28->56, skip s1
-        self.stem0 = ConvBlock3D(cfg.volume.channels, cs)                                       # 224^3
-        self.stem1 = nn.Sequential(nn.Conv3d(cs, cs, 3, 2, 1, bias=False),
-                                   nn.InstanceNorm3d(cs, affine=True), nn.LeakyReLU(0.01, inplace=True))  # 112^3
-        self.up3 = UpBlock3D(self.d1, cs, cs)                    # 56->112, skip stem1
-        self.up4 = (SepUpBlock3D(cs, cs, cs) if sep_up4 else
-                    UpBlock3D(cs, cs, cs))                       # res/2 -> res, skip stem0
+        self.up1 = Up(self.d3, self.d2, self.d2)                 # 14->28, skip s2
+        self.up2 = Up(self.d2, self.d1, self.d1)                 # 28->56, skip s1
+        if stem_stride2:
+            # CEPA's stem geometry: the FIRST conv is stride-2, so nothing wider than the 1-channel
+            # input is ever held at full resolution. Ours convolves at res^3 x cs = 2.12e9 elements
+            # at 336/56 -- 0.99x the 2^31 cuDNN limit and 6.54 TFLOP -- for a skip only up4 consumes.
+            # Dropping stem0 leaves the res/2 map (which up3 needs) and removes the res-res one.
+            self.stem0 = None
+            self.stem1 = nn.Sequential(
+                nn.Conv3d(cfg.volume.channels, cs, 3, 2, 1, bias=False),
+                nn.InstanceNorm3d(cs, affine=True), nn.LeakyReLU(0.01, inplace=True),
+                ConvBlock3D(cs, cs))                             # res -> res/2 in one stride-2 conv
+        else:
+            self.stem0 = ConvBlock3D(cfg.volume.channels, cs)                                   # 224^3
+            self.stem1 = nn.Sequential(nn.Conv3d(cs, cs, 3, 2, 1, bias=False),
+                                       nn.InstanceNorm3d(cs, affine=True), nn.LeakyReLU(0.01, inplace=True))  # 112^3
+        self.up3 = Up(self.d1, cs, cs)                           # 56->112, skip stem1
+        # up4 consumes the res-resolution stem0 skip; unbuildable (and unreachable) without it.
+        self.up4 = None if stem_stride2 else (SepUpBlock3D(cs, cs, cs) if sep_up4 else
+                                              Up(cs, cs, cs))    # res/2 -> res, skip stem0
         self.out = nn.Conv3d(cs, 1, 1)
         # TEXT-CONDITIONED OUTPUT (--txt_head). The final decision was text-AGNOSTIC: all fusion
         # stopped at 56^3 and `self.out` is a plain conv, so the highest-resolution logit never saw
@@ -377,7 +401,11 @@ class TextGroundingJEPA(nn.Module):
         if self.fusion == "xattn":
             x = self._fuse(x, self.fuse1, qemb)
         aux56 = self.aux56(x).squeeze(1) if self.deep_sup else None
-        st0 = self.stem0(vol); st1 = self.stem1(st0)
+        # --stem_stride2: stem1 takes the raw volume and downsamples in its first conv, so no
+        # res-resolution activation is ever built. st0 stays None; the up4 branches that consume it
+        # are unreachable under the __init__ guard.
+        st0 = None if self.stem_stride2 else self.stem0(vol)
+        st1 = self.stem1(vol if self.stem_stride2 else st0)
         x = self.up3(x, st1)                                     # 112^3
         if self.film: x = self.film0(x, qemb)
         if self.sep_up4:

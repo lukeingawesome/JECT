@@ -67,6 +67,33 @@ class UpBlock3D(nn.Module):
         return self.block(torch.cat([x, skip], dim=1))
 
 
+class AddUpBlock3D(nn.Module):
+    """UpBlock3D with a projected-ADDED skip instead of a concatenated one.
+
+    Concat momentarily materialises `out_ch + skip_ch` channels at the FINER grid, which is both the
+    tensor that OOMs at 336³ and the one that pins hi_ch at 56 against the 2³¹ cuDNN index limit.
+    Projecting the skip to out_ch and adding holds peak width at out_ch instead of ~2x that.
+
+    NOT interchangeable with SepUpBlock3D, which ALSO swaps the fuse for depthwise-separable convs.
+    The single run that used SepUpBlock3D (--sep_up4) scored 0.1397, but it changed the fusion AND
+    the convolution type together; this block isolates the fusion so the two can be attributed
+    separately. Everything else -- transpose-conv upsample, shape guard, ConvBlock3D fuse -- is
+    identical to UpBlock3D, so `--skip_fusion add` differs from the baseline in exactly one respect.
+    """
+
+    def __init__(self, in_ch: int, skip_ch: int, out_ch: int):
+        super().__init__()
+        self.up = nn.ConvTranspose3d(in_ch, out_ch, kernel_size=2, stride=2)
+        self.skip_proj = nn.Conv3d(skip_ch, out_ch, 1, bias=False) if skip_ch != out_ch else nn.Identity()
+        self.block = ConvBlock3D(out_ch, out_ch)
+
+    def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
+        x = self.up(x)
+        if x.shape[2:] != skip.shape[2:]:                       # guard off-by-one from padded grids
+            x = F.interpolate(x, size=skip.shape[2:], mode="trilinear", align_corners=False)
+        return self.block(x + self.skip_proj(skip))
+
+
 class SepConvBlock3D(nn.Module):
     """Depthwise-separable version of ConvBlock3D for full-resolution decoding.
 

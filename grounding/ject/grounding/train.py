@@ -67,6 +67,19 @@ def main():
                          "only the 1x1x1 output conv (+ --txt_head dot product) there, skipping the "
                          "expensive up4 convolutions. ~1600x cheaper than native-res decoding and "
                          "lifts the res/2 Dice ceiling (~0.69 median). Set --out_res to --res.")
+    ap.add_argument("--stem_stride2", action="store_true",
+                    help="Downsample in the raw-CT stem's FIRST conv (res -> res/2) so no tensor "
+                         "wider than the 1-channel input is ever held at full resolution. Ours "
+                         "convolves at res^3 x hi_ch = 2.12e9 elements at 336/56 -- 0.99x the 2^31 "
+                         "cuDNN limit and 6.54 TFLOP -- purely to feed up4's skip. CEPA's decoder "
+                         "does this and trains ~6x faster at the same input resolution. Removes the "
+                         "res-resolution skip, so pair with --out_res <res/2> or --hires_head.")
+    ap.add_argument("--skip_fusion", choices=["concat", "add"], default="concat",
+                    help="How decoder skips enter the fuse. 'concat' (default) stacks channels; "
+                         "'add' projects the skip to the block width with a 1x1x1 and adds, halving "
+                         "peak width at every fusion point. NOTE --sep_up4 already used an added "
+                         "skip but ALSO swapped in depthwise-separable convs and scored 0.1397 -- "
+                         "this flag isolates the fusion so the two are attributable separately.")
     ap.add_argument("--txt_head", action="store_true",
                     help="make the FULL-RESOLUTION logit text-conditioned via a dot product "
                          "between a projected phrase vector and the per-voxel embedding "
@@ -150,6 +163,7 @@ def main():
                               predictor_prior_s3=args.predictor_prior_s3,
                               mup_logit=args.mup_logit, txt_head=args.txt_head,
                               hires_head=args.hires_head, sep_up4=args.sep_up4,
+                              stem_stride2=args.stem_stride2, skip_fusion=args.skip_fusion,
                               film=args.film, deep_sup=args.deep_sup,
                               predictor_prior=args.predictor_prior).to(dev)
     load_flexible_checkpoint(model.art, args.init, verbose=rank0, allow_conditioner_reset=True)
