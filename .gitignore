@@ -1,0 +1,25 @@
+# Agent tooling: skills + Claude instructions, cloned from
+# https://github.com/lukeingawesome/my_agent — its own repo, versioned there.
+my_agent/
+
+# Session-local notes + analysis tooling (not for publication)
+local/
+
+# Patient imaging must never enter git. The volumes are bind-mounted or read from
+# $JECT_DATA at runtime; nothing in this repo should ever reference them by copy.
+data/
+*.dcm
+*.nii
+*.nii.gz
+*.npz
+*.pt
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# TEMPORARY — Docker training profiles, kept locally but not published yet. Working and tested
+# (docker/test_preflight.py, 8/8); simply not part of what this repo ships today. No outstanding
+# work blocks them. Delete these two lines to un-park; nothing else needs to change.
+docker/
+.dockerignore
