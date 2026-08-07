@@ -21,7 +21,8 @@ EVAL_THRS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.92, 0.94, 0.9
 def evaluate(model, loader, dev, rank0):
     model.eval()
     sums = {t: 0.0 for t in EVAL_THRS}; hits = {t: 0 for t in EVAL_THRS}; oracle = 0.0; tot = 0
-    for vol, q, gt in loader:
+    for batch in loader:                       # not `b`: the inner per-sample loop below owns that
+        vol, q, gt = batch["vol"], batch["q"], batch["gt"]
         vol, q = vol.to(dev), q.to(dev)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logit = model(vol, q, window_id=torch.full((vol.shape[0],), 2, device=dev),

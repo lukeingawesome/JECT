@@ -13,6 +13,42 @@ import ject.grounding.paths as paths   # module, not `from ... import DATA` (bin
 def gwin(ct):
     return np.clip((ct.astype(np.float32) + 1000.0) / 2000.0, 0.0, 1.0)
 
+def _stem(name):
+    """`train_1741_b_2` from either `...npz` (the CSV's object_id) or `...nii.gz` (the JSON's name).
+
+    The two sources disagree on suffix, which is exactly the kind of mismatch that yields a lookup
+    silently returning the -1 sentinel for every finding instead of failing.
+    """
+    n = str(name)
+    for suf in (".nii.gz", ".npz", ".nii"):
+        if n.endswith(suf):
+            return n[: -len(suf)]
+    return n
+
+
+def _entity_counts():
+    """{(object_id, finding_index): entity_count} from the challenge JSON, or {} if unset.
+
+    OPTIONAL, unlike the four required paths: only extent/censoring mechanisms read it, and nothing
+    in the current training path does. Absent, every lookup returns -1 and a consumer that needs it
+    must say so itself rather than silently training on a sentinel.
+
+    Why it matters: `entity_count == 3` is the annotation CAP, not a count -- 29.5% of train
+    findings pile up there -- so a volume target read off those masks is a lower bound, not a label.
+    Built across ALL splits because the challenge JSON's split names need not match `rex_split`.
+    """
+    path = os.environ.get("JECT_CHALLENGE_JSON", "")
+    if not path or not os.path.isfile(path):
+        return {}
+    out = {}
+    for studies in json.load(open(path)).values():
+        for s in studies:
+            oid = _stem(s.get("name", ""))
+            for k, c in (s.get("entity_counts") or {}).items():
+                out[(oid, int(k))] = int(c)
+    return out
+
+
 class RexGrounding(Dataset):
     def __init__(self, split, embs, augment=False):
         df = pd.read_csv(paths.REX_CSV); df = df[df["rex_split"] == split]
@@ -23,6 +59,7 @@ class RexGrounding(Dataset):
                 if txt in embs:
                     self.items.append((oid, int(k), txt))
         self.embs = embs; self.augment = augment
+        self.ent = _entity_counts()
     def __len__(self): return len(self.items)
     def __getitem__(self, i):
         oid, k, txt = self.items[i]
@@ -40,7 +77,16 @@ class RexGrounding(Dataset):
         ct = apply_crop_pad_3d(ct, sl, pd_, constant=-1000.0)
         gtm = apply_crop_pad_3d(gtm, sl, pd_, constant=0)
         vol = torch.from_numpy(gwin(ct)).float().unsqueeze(0)
-        return vol, self.embs[txt].float(), torch.from_numpy(gtm.astype(np.float32))
+        # A DICT, not a tuple. Mechanisms that condition on the target's EXTENT (a predicted
+        # threshold or predicted volume) need |Y| and entity_count alongside the mask, and growing a
+        # positional tuple each time one arrives means re-editing every unpack site with a fresh
+        # chance to mis-order it. Keys are additive; unpacks are not.
+        return {"vol": vol,
+                "q": self.embs[txt].float(),
+                "gt": torch.from_numpy(gtm.astype(np.float32)),
+                "gt_vox": int(gtm.sum()),                  # |Y| AFTER the crop, i.e. what the loss sees
+                "entity_count": self.ent.get((_stem(oid), k), -1),
+                "oid": oid, "k": k}
 
 def setup():
     if "RANK" in os.environ:

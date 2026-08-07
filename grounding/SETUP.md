@@ -156,6 +156,11 @@ export JECT_REX=/your/data/final_rex_miccai.csv      # annotations
 export JECT_EMB=/your/data/rex_all_embs.pt           # {phrase: embedding}
 export JECT_INIT=/your/weights/backbone_cd336.pt     # pretrained checkpoint
 export JECT_RES=336                                  # only needed outside train.py — see below
+
+# OPTIONAL. Adds `entity_count` to each sample; without it every sample reports -1.
+# Nothing in the current training path reads it — it is there for extent/censoring mechanisms,
+# where `entity_count == 3` marks the annotation CAP rather than a true count.
+export JECT_CHALLENGE_JSON=/path/to/MICCAI_challenge_dataset.json
 ```
 
 `JECT_RES` sets the crop size **only** when you load the dataset yourself, as in step 3a. During
@@ -193,9 +198,10 @@ embs = torch.load(paths.TEXT_EMB, map_location="cpu", weights_only=False)
 for split in ("train", "val"):
     ds = RexGrounding(split, embs)
     print(f"{split}: {len(ds)} findings")
-vol, q, gt = ds[0]
-print("volume", tuple(vol.shape), "| embedding", tuple(q.shape), "| mask", tuple(gt.shape),
-      "| positive voxels", int(gt.sum()))
+s = ds[0]
+print("volume", tuple(s["vol"].shape), "| embedding", tuple(s["q"].shape),
+      "| mask", tuple(s["gt"].shape), "| positive voxels", s["gt_vox"],
+      "| entity_count", s["entity_count"])
 EOF
 ```
 

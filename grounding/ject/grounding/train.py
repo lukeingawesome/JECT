@@ -262,8 +262,8 @@ def main():
     best = 0.0
     for ep in range(args.epochs):
         model.train()
-        for i, (vol, q, gt) in enumerate(trl):
-            vol, q, gt = vol.to(dev), q.to(dev), gt.to(dev)
+        for i, batch in enumerate(trl):
+            vol, q, gt = batch["vol"].to(dev), batch["q"].to(dev), batch["gt"].to(dev)
             if i % args.grad_accum == 0:
                 opt.zero_grad(set_to_none=True)
             # adaptive_max_pool3d, NOT a fixed integer kernel: a fixed kernel needs out_res to
