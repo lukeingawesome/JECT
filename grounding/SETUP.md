@@ -94,8 +94,13 @@ python tools/make_phrase_embeddings.py \
 It embeds every distinct `rex_findings` phrase with **Chest2Vec-0.6B**
 (`lukeingawesome/chest2vec_0.6b_chest`) and writes `{phrase: 1024-d float32}`, L2-normalised. The
 published model has its LoRA merged into the weights and bundles its own tokenizer and modeling
-code, so `trust_remote_code=True` is the whole story — no `chest2vec` package, and no separate
-download of the base Qwen3-Embedding.
+code, so `trust_remote_code=True` is the whole story — no `chest2vec` package, no `peft`, and no
+separate download of the base Qwen3-Embedding.
+
+Nothing here is machine-specific: the model is **public and ungated** (no HF token), both paths are
+CLI arguments, and it runs on **CPU** if you have no GPU free — 0.6B parameters, a few minutes
+either way. This is the one input a new machine can produce without being handed anything but the
+CSV.
 
 Verified against the shipped file across all **6,926** phrases: cosine **min 0.9993, mean 0.9997**
 (bf16 rounding in the merged weights — the model card quotes ≥ 0.9996 for the same comparison).

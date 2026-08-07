@@ -11,8 +11,11 @@ character removes that finding from training with no error. Verify the counts af
 
 The encoder is Chest2Vec-0.6B, published with its LoRA already merged into the weights and its
 tokenizer and modeling code bundled, so `trust_remote_code=True` is all it takes -- no `chest2vec`
-package, and no separate download of the base Qwen3-Embedding. `model.embed()` owns the
+package, no `peft`, and no separate download of the base Qwen3-Embedding. `model.embed()` owns the
 tokenisation, the EOS/last-token pooling and the batching, which is what makes this script short.
+
+The model is public and ungated, so no HF token is needed, and it runs on CPU (`--device cpu`) if no
+GPU is free. Both paths are arguments: nothing here is tied to the machine it was written on.
 
 Needs `transformers` (and `accelerate` for device placement), which are NOT in requirements.txt --
 they are a one-off cost for producing this file, not a training dependency:
