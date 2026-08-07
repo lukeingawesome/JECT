@@ -18,7 +18,7 @@ grounding subset only — **you do not need the full pretraining corpus.**
 | 2 | volumes, 256³ @ 1.5 mm — for **224** models | **60 GB** (3,492 files) | `/opt/project/final_preprocessed_half` |
 | 3 | volumes, 384³ @ 1.0 mm — for **336** models | **195 GB** (3,492 files) | `/opt/project/final_preprocessed_full` |
 | 4 | annotations CSV | 800 KB | `/opt/project/cepa2/dataframe/final_rex_miccai.csv` |
-| 5 | phrase embeddings | 29 MB | `/opt/project/cepa2/art/runs/rex_all_embs.pt` |
+| 5 | phrase embeddings | 29 MB | `/opt/project/cepa2/art/runs/rex_all_embs.pt` — or rebuild it, § below |
 | 6 | pretrained backbone — 224 | 5.0 GB | `/opt/project/cepa2/art/runs/stage0_huge_foundation_v2/checkpoint_epoch_40.pt` |
 | 7 | pretrained backbone — 336-cooled | 5.0 GB | `/opt/project/cepa2/art/runs/stage0_huge_foundation_v2_cd336/checkpoint_epoch_6.pt` |
 
@@ -77,6 +77,42 @@ wrong place in the original volume, with no error.
 
 **The test split has no ground-truth masks** — that is the point of it. `--mode score` therefore works
 only on `val`; for `test` you run `--mode zip` and submit.
+
+### Rebuilding the phrase embeddings
+
+Unlike the volumes, item #5 is **reproducible from this repo in one command** — a few minutes on one
+GPU, no preprocessing pipeline involved:
+
+```bash
+pip install transformers accelerate          # not in requirements.txt: needed to make this file, not to train
+python tools/make_phrase_embeddings.py \
+  --rex_csv /path/to/final_rex_miccai.csv \
+  --out weights/rex_all_embs.pt \
+  --verify /path/to/existing/rex_all_embs.pt   # optional
+```
+
+It embeds every distinct `rex_findings` phrase with **Chest2Vec-0.6B**
+(`lukeingawesome/chest2vec_0.6b_chest`) and writes `{phrase: 1024-d float32}`, L2-normalised. The
+published model has its LoRA merged into the weights and bundles its own tokenizer and modeling
+code, so `trust_remote_code=True` is the whole story — no `chest2vec` package, and no separate
+download of the base Qwen3-Embedding.
+
+Verified against the shipped file across all **6,926** phrases: cosine **min 0.9993, mean 0.9997**
+(bf16 rounding in the merged weights — the model card quotes ≥ 0.9996 for the same comparison).
+`--verify` fails below 0.999, which is where a different encoder or pooling would land.
+
+Two ways to get this wrong, both silent:
+
+* **Keys must match the CSV exactly.** `dataset.py` does `if txt in embs` and skips any phrase it
+  cannot find, so a stray character drops that finding from training with no error. Re-run §3a and
+  confirm `train: 7687 / val: 381`.
+* **Do not pass an instruction.** Chest2Vec follows the Qwen3-Embedding convention where queries are
+  wrapped in an instruction template and documents are not; these phrases were embedded as
+  documents, and an instruction yields a different vector for the same string.
+
+Swapping the encoder is allowed — the grounding head's `query_proj` (1024 → 256) trains from
+scratch, so only *consistency* matters. Rebuild the whole file and retrain the head; the failure to
+avoid is two encoders inside one file.
 
 ### The `.npz` format, if you have to produce it yourself
 
