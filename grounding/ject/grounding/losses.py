@@ -44,6 +44,64 @@ def mil_peak_loss(logit, gt, k=32, margin=1.0, eps=1e-6):
     return F.relu(neg[has] - pos[has] + margin).mean()
 
 
+def coverage_loss(logit, gt, tau=0.15, k_neg=1024, margin=1.0):
+    """Push the LOW quantile of positive logits above the hard negatives -- not the peak.
+
+    THE POINT, AND THE DIFFERENCE FROM mil_peak_loss. A peak-ranking loss is satisfied the moment
+    ONE positive voxel outranks the negatives, and the model already achieves that on most findings.
+    It therefore strengthens the seed without raising the rest of the target. Three independent
+    measurements say the seed is not the problem:
+
+      * oracle top-k peaks at 1.5x |Y|, not 1.0x -- taking MORE voxels than the target beats taking
+        exactly the right number, i.e. the true support is not all near the top of the ranking;
+      * 89.5% of peaks already sit inside the phrase's own lung lobe, and only 2.1% of the voxels
+        out-ranking the target lie outside it, so the errors are not misplacement;
+      * quality-among-hits is pinned near 0.405 across three architectures and two resolutions.
+
+    That is foreground-coverage collapse: a confident seed, an unraised remainder. So penalise the
+    BOTTOM of the positive distribution instead of the top.
+
+        L = softplus( margin + s_N - Q_tau(z_P) )
+
+    Q_tau(z_P) is the tau-quantile of the positive logits (tau ~ 0.10-0.25: the weakest fifth of the
+    target), and s_N is the k-th largest NEGATIVE logit -- a robust stand-in for "the hard negatives"
+    that avoids letting a single outlier voxel define the bar, exactly as mil_peak_loss uses top-k
+    rather than a bare max.
+
+    softplus rather than relu: the gradient does not vanish once the margin is met, so the term keeps
+    lifting weak positives instead of switching off at the boundary. Raw logits, so `margin` is in
+    logit units. Empty targets are skipped.
+
+    NOTE this loss changes NO parameters, so a run using it can warm-start from an existing head via
+    --init_grounding.
+    """
+    S = logit.flatten(1).float()
+    g = gt.flatten(1) > 0.5
+    has = g.any(dim=1)
+    if not has.any():
+        return logit.sum() * 0.0
+
+    # MEANS, not single order statistics. kthvalue/max backprop to exactly ONE voxel, which on a
+    # 216-voxel target sends gradient to 2 voxels per sample and cannot lift a support. Pooling the
+    # tail spreads it over every voxel that is actually too low -- the same reason mil_peak_loss
+    # pools the top k inside the target rather than taking a bare max.
+    kn = int(max(1, min(k_neg, S.shape[1])))
+    neg = S.masked_fill(g, float("-inf")).topk(kn, dim=1).values.mean(dim=1)
+
+    # Q_tau(z_P): mean of the LOWEST tau-fraction of the positives. Negatives are pushed to +inf so
+    # they can never enter that tail.
+    pos_masked = S.masked_fill(~g, float("inf"))
+    n_pos = g.sum(dim=1)
+    out = []
+    for b in range(S.shape[0]):
+        if not has[b]:
+            continue
+        idx = int(max(1, min(int(round(tau * float(n_pos[b]))), int(n_pos[b]))))
+        out.append(pos_masked[b].topk(idx, largest=False).values.mean())
+    qp = torch.stack(out)
+    return F.softplus(margin + neg[has] - qp).mean()
+
+
 def attn_kl_loss(simmap, gt, eps=1e-8):
     """KL(normalised GT || softmax over positions of the text-image similarity map).
 

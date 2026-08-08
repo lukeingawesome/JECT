@@ -8,7 +8,7 @@ from ject.checkpoint import load_flexible_checkpoint
 from ject.grounding.dataset import RexGrounding, setup, build_cfg
 from ject.grounding.evaluate import dice_score, evaluate
 from ject.grounding.losses import (mil_peak_loss, attn_kl_loss, voxel_infonce_loss,
-                                   tversky_bce_loss)
+                                   tversky_bce_loss, coverage_loss)
 from ject.grounding.model import TextGroundingJEPA
 import ject.grounding.paths as paths   # module, so CLI overrides are visible everywhere
 
@@ -84,6 +84,16 @@ def main():
                     help="make the FULL-RESOLUTION logit text-conditioned via a dot product "
                          "between a projected phrase vector and the per-voxel embedding "
                          "(SAT/VoxTell/ESICA operator). Added to the existing conv head.")
+    ap.add_argument("--coverage_w", type=float, default=0.0,
+                    help="weight of the COVERAGE term softplus(m + s_N - Q_tau(z_P)): lift the LOW "
+                         "quantile of positive logits above the hard negatives. Targets "
+                         "foreground-coverage collapse -- the measured failure where the model "
+                         "raises a confident seed but not the target's full support (oracle top-k "
+                         "peaks at 1.5x|Y|, quality-among-hits pinned at 0.405). Unlike --mil_w, "
+                         "which is satisfied by ONE positive out-ranking the negatives and so "
+                         "strengthens the seed the model already has.")
+    ap.add_argument("--coverage_tau", type=float, default=0.15,
+                    help="quantile of the positive logits the coverage term lifts (0.10-0.25).")
     ap.add_argument("--mil_w", type=float, default=0.0,
                     help="weight of the CATMIL peak term -log(max p inside target). Targets the "
                          "measured failure directly: the peak is OUTSIDE the lesion for 73%% of "
@@ -290,6 +300,9 @@ def main():
                                                                       tau=args.infonce_tau)
                 if args.mil_w > 0:
                     loss = loss + args.mil_w * mil_peak_loss(logit.float(), gtr)
+                if args.coverage_w > 0:
+                    loss = loss + args.coverage_w * coverage_loss(logit.float(), gtr,
+                                                                  tau=args.coverage_tau)
                 if args.attn_kl_w > 0 and getattr(model, "_txt_sim", None) is not None:
                     loss = loss + args.attn_kl_w * attn_kl_loss(model._txt_sim.float(), gtr)
             (loss / args.grad_accum).backward()          # scale so the accumulated grad is a mean
