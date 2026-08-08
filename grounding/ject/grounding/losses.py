@@ -156,14 +156,40 @@ def voxel_infonce_loss(logit, gt, n_pos=512, n_neg=4096, tau=0.1, eps=1e-8):
     return torch.stack(terms).mean()
 
 
-def tversky_bce_loss(logit, gt, alpha=0.3, beta=0.7, eps=1.0, pos_weight=50.0):
+def tversky_bce_loss(logit, gt, alpha=0.3, beta=0.7, eps=1.0, pos_weight=50.0, bg_w=None):
     """Tversky + weighted BCE. NOTE alpha/beta/pos_weight are now CLI-configurable: the defaults
     stack TWO recall biases (beta>alpha AND pos_weight=50), which no surveyed system does, and the
-    measured precision 0.172 / recall 0.493 is exactly that signature."""
+    measured precision 0.172 / recall 0.493 is exactly that signature.
+
+    bg_w -- OPTIONAL per-sample [B] multiplier on the FALSE-POSITIVE penalty, for CENSORED
+    annotations. `entity_count == 3` is the annotation CAP, not a count: 29.5% of train findings
+    pile up there while val runs out to 36 entities. For those samples real unlabelled lesions sit
+    in the mask's BACKGROUND, so charging them as false positives trains the model to suppress true
+    findings on nearly a third of the data -- which is a DATA explanation for the quality-among-hits
+    plateau at 0.405 that no architecture or loss change has moved.
+
+    This is the conservative form of the positive-unlabeled correction (Zhou et al., MELBA 2022,
+    arXiv:2302.08050), which rewrites the negative risk using a class prior instead of treating
+    unlabelled as negative. Their severely-incomplete case recovers F1 0.102 -> 0.522. We do not
+    estimate a prior; we simply down-weight the term we know to be wrong on the samples we know are
+    censored. Note they also report that PRECISION stops being meaningful under incomplete labels --
+    ours is 0.172.
+
+    bg_w=None reproduces the previous behaviour exactly.
+    """
     p = torch.sigmoid(logit).flatten(1); g = gt.flatten(1)
     tp = (p * g).sum(1); fp = (p * (1 - g)).sum(1); fn = ((1 - p) * g).sum(1)
-    tversky = (1 - (tp + eps) / (tp + alpha * fp + beta * fn + eps)).mean()
-    bce = F.binary_cross_entropy_with_logits(logit, gt, pos_weight=torch.tensor(pos_weight, device=logit.device))
-    return tversky + bce
+    if bg_w is None:
+        tversky = (1 - (tp + eps) / (tp + alpha * fp + beta * fn + eps)).mean()
+        return tversky + F.binary_cross_entropy_with_logits(
+            logit, gt, pos_weight=torch.tensor(pos_weight, device=logit.device))
+    w = bg_w.to(logit.device).float().flatten()                      # [B]
+    tversky = (1 - (tp + eps) / (tp + alpha * w * fp + beta * fn + eps)).mean()
+    # per-voxel BCE, then scale ONLY the background voxels of censored samples
+    per = F.binary_cross_entropy_with_logits(
+        logit, gt, pos_weight=torch.tensor(pos_weight, device=logit.device), reduction="none")
+    shape = [-1] + [1] * (per.dim() - 1)
+    vox_w = gt + (1 - gt) * w.view(shape)                            # 1 on positives, w on background
+    return tversky + (per * vox_w).mean()
 
 

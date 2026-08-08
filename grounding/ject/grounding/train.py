@@ -84,6 +84,16 @@ def main():
                     help="make the FULL-RESOLUTION logit text-conditioned via a dot product "
                          "between a projected phrase vector and the per-voxel embedding "
                          "(SAT/VoxTell/ESICA operator). Added to the existing conv head.")
+    ap.add_argument("--censor_bg_w", type=float, default=1.0,
+                    help="multiplier on the FALSE-POSITIVE penalty for CENSORED findings "
+                         "(entity_count >= --censor_at). The annotation caps at 3 entities: 29.5%% "
+                         "of TRAIN findings pile up there while val runs out to 36, so on those "
+                         "samples unlabelled real lesions sit in the background and the FP term "
+                         "trains the model to suppress true findings. 1.0 = current behaviour. "
+                         "Needs $JECT_CHALLENGE_JSON, and aborts without it rather than silently "
+                         "doing nothing.")
+    ap.add_argument("--censor_at", type=int, default=3,
+                    help="entity_count value at which the annotation is capped (see --censor_bg_w).")
     ap.add_argument("--coverage_w", type=float, default=0.0,
                     help="weight of the COVERAGE term softplus(m + s_N - Q_tau(z_P)): lift the LOW "
                          "quantile of positive logits above the hard negatives. Targets "
@@ -257,7 +267,7 @@ def main():
                   f"optimizer/schedule restart from scratch", flush=True)
 
     if rank0: os.makedirs(args.out, exist_ok=True)
-    def _primary(lg, g, pw):
+    def _primary(lg, g, pw, bgw=None):
         """Primary dense loss at one scale. 'infonce' SUBSTITUTES ranking for set-overlap; the BCE
         term is kept only because InfoNCE is shift-invariant per sample, so without it
         sigmoid(logit) is uncalibrated and fixed-threshold Dice is meaningless."""
@@ -267,13 +277,23 @@ def main():
                 l = l + args.infonce_bce * F.binary_cross_entropy_with_logits(
                     lg, g, pos_weight=torch.tensor(pw, device=lg.device))
             return l
-        return tversky_bce_loss(lg, g, alpha=args.tversky_a, beta=args.tversky_b, pos_weight=pw)
+        return tversky_bce_loss(lg, g, alpha=args.tversky_a, beta=args.tversky_b, pos_weight=pw,
+                                bg_w=bgw)
 
     best = 0.0
     for ep in range(args.epochs):
         model.train()
         for i, batch in enumerate(trl):
             vol, q, gt = batch["vol"].to(dev), batch["q"].to(dev), batch["gt"].to(dev)
+            bgw = None
+            if args.censor_bg_w != 1.0:
+                ec = batch["entity_count"].to(dev).float()
+                if bool((ec < 0).all()):
+                    raise SystemExit(
+                        "--censor_bg_w needs entity_count, which is -1 for every sample. Set "
+                        "$JECT_CHALLENGE_JSON to MICCAI_challenge_dataset.json (see SETUP.md §2).")
+                bgw = torch.where(ec >= args.censor_at,
+                                  torch.full_like(ec, args.censor_bg_w), torch.ones_like(ec))
             if i % args.grad_accum == 0:
                 opt.zero_grad(set_to_none=True)
             # adaptive_max_pool3d, NOT a fixed integer kernel: a fixed kernel needs out_res to
@@ -285,16 +305,17 @@ def main():
                             ct_type_id=torch.zeros(vol.shape[0], dtype=torch.long, device=dev))  # non-contrast
                 if isinstance(out, tuple):                       # deep supervision
                     logit, aux = out
-                    loss = _primary(logit.float(), gtr, args.pos_weight)
+                    loss = _primary(logit.float(), gtr, args.pos_weight, bgw)
                     for a, w in aux:                             # downsample GT to each aux scale
                         ga = F.max_pool3d(gtr.unsqueeze(1), kernel_size=gtr.shape[-1] // a.shape[-1])[:, 0]
                         # scale pos_weight by the pooling factor: the positive FRACTION is
                         # ~k^3 higher at the aux scale, so reusing 50 grossly over-weights it.
                         k = gtr.shape[-1] // a.shape[-1]
-                        loss = loss + w * _primary(a.float(), ga, max(1.0, args.pos_weight / k ** 3))
+                        loss = loss + w * _primary(a.float(), ga, max(1.0, args.pos_weight / k ** 3),
+                                                   bgw)
                 else:
                     logit = out
-                    loss = _primary(logit.float(), gtr, args.pos_weight)
+                    loss = _primary(logit.float(), gtr, args.pos_weight, bgw)
                 if args.infonce_w > 0:
                     loss = loss + args.infonce_w * voxel_infonce_loss(logit.float(), gtr,
                                                                       tau=args.infonce_tau)
