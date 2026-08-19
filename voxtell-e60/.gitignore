@@ -1,0 +1,10 @@
+runs/
+*.pth
+*.pt
+*.npz
+*.npy
+*.nii.gz
+submission_*.zip
+__pycache__/
+*.pyc
+.pytest_cache/

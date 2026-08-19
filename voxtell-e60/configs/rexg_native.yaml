@@ -1,0 +1,48 @@
+# VoxTell arms (B / C / E / S) -- THE NATIVE GRID. NO RESAMPLE.
+#
+# This file exists because a 60,000-step run once recorded preprocessing it did not do. The
+# VoxTell arms used to name a `rexg_res_2mm.yaml`, which declares `target_spacing: [2,2,2]`
+# and `cube_size: [192,192,192]`. `train_voxtell.py` reads NEITHER -- `grep cfg.target_spacing`
+# returns nothing. B60 and E60 therefore carried a 2 mm isotropic resample in their config and
+# their run.json that never happened, and two later sessions read it back and concluded the
+# input scale was already normalised.
+#
+# What actually happens: `VoxTellPatches` mmaps `npy_root/ct/<name>.npy` (native grid, RAS)
+# and cuts 192^3 in VOXELS. Inference is the same -- `VoxTellPredictor.preprocess` is
+# `crop_to_nonzero` plus normalisation, and `plans.json` has `spacing: None`.
+#
+# So 192^3 spans a different physical volume in every patient (npy/index.csv, 3,492 volumes):
+#   in plane  58.3 - 187.5 mm   (p50 133.9, a 3.2x spread)
+#   z         96.0 - 576.0 mm   (p50 192.0, a 6.0x spread)
+#   a 10 mm lesion is 10.2-32.9 voxels in plane and 3.3-20.0 in z
+# Whether that costs Dice is NOT MEASURED.
+#
+# 192 is not choosable here: VoxTell's `pos_embed` buffer is fixed at that size and
+# `train_voxtell.PATCH` is asserted against `plans.json`'s `patch_size` at startup. It lives
+# in code, not in this file, for that reason.
+#
+# EDIT THE FOUR PATHS BELOW FOR YOUR MACHINE. Leave every preprocess key null --
+# `gate_dead_config` refuses this file otherwise, naming the offending keys.
+
+paths:
+  paired_root: /home1/irteam/data-vol1/data/ReXGroundingCT_paired
+  seg_root: /home1/irteam/data-vol1/data/ReXGroundingCT/segmentations
+  npy_root: /home1/irteam/data-vol1/data/ReXGroundingCT_paired/npy
+  # No resample cache is used. Non-null and train_voxtell.py exits on G-DEAD-CONFIG.
+  cache2mm_root: null
+
+preprocess:
+  # All five must be null. A value here records something this arm does not do, and
+  # G-DEAD-CONFIG prints the filename and the key rather than letting it through.
+  spatial_size: null      # no resize
+  target_spacing: null    # no isotropic resample
+  cube_size: null         # no fixed-mm cube crop
+  iso_spacing: null
+  hu_window: null         # per-volume z-score is the default; the fixed affine is --hu-norm ct
+  orientation: RAS        # the npy cache is already RAS. Recorded, not applied.
+
+selection:
+  split_column: miccai_split
+  split: train
+  fold: null
+  label_source: ctrate

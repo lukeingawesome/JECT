@@ -1,0 +1,21 @@
+# The versions this code was developed and validated against (Python 3.12.13, 1x H200).
+#
+# `voxtell` is NOT on PyPI and is not listed here: it is the DKFZ VoxTell repository, and it
+# has to be installed from source (SETUP.md step 1). It is what pulls in nnunetv2, acvl_utils,
+# batchgenerators and dynamic_network_architectures, so installing it first and this file
+# second is the order that resolves cleanly.
+torch==2.12.1
+numpy==2.4.6
+pandas==3.0.3
+scipy==1.18.0
+nibabel==5.4.2       # NIfTI I/O; the submission masks and the GT are read through it
+monai==1.6.0         # only for the two cache transforms in src/research_agent/data
+PyYAML==6.0.3
+tqdm==4.68.3
+
+# Text bank only. Training and inference read the .npz bank, never the encoder -- so a box
+# that already has a bank does not need transformers at all.
+transformers==5.14.1
+
+# Tests.
+pytest>=8.0
