@@ -1,0 +1,19 @@
+# Imaging data
+data/
+*.dcm
+*.nii
+*.nii.gz
+*.npz
+
+# Weights, features and tables
+*.pt
+*.csv
+
+# Caches
+__pycache__/
+*.py[cod]
+cache/
+.cache/
+
+# Local files
+local/

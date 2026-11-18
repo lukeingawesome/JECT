@@ -1,0 +1,14 @@
+# JECT training cubes (224^3 models): 1.5 mm isotropic, 256^3, raw HU int16, lung-centred, LPS then (C, D, H, W).
+# Matches the shape, spacing, dtype and keys of the released training cubes (ct, totalseg, optional rex).
+# NOT YET VERIFIED voxel-for-voxel against the original cubes (needs the TotalSegmentator masks the crop uses).
+target_spacing: [1.5, 1.5, 1.5]
+target_shape: [256, 256, 256]
+orientation: LPS
+hu_window: null
+image_dtype: int16
+label_dtype: uint16
+lung_labels: [10, 11, 12, 13, 14]
+min_source_shape: [200, 200, 100]
+compress: true
+overwrite: false
+num_workers: 8

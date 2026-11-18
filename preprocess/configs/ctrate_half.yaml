@@ -1,0 +1,12 @@
+# Half-resolution preprocessing: 1.5 mm spacing, 256x256x224, raw HU in int16.
+target_spacing: [1.5, 1.5, 1.5]
+target_shape: [256, 256, 224]
+orientation: LPS
+hu_window: null
+image_dtype: int16
+label_dtype: uint16
+lung_labels: [10, 11, 12, 13, 14]
+min_source_shape: [200, 200, 100]
+compress: true
+overwrite: false
+num_workers: 8

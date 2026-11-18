@@ -1,0 +1,1 @@
+"""JEPA pretraining objectives."""

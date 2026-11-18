@@ -1,0 +1,12 @@
+# Full-resolution preprocessing: 1 mm isotropic, 384^3, raw HU in int16.
+target_spacing: [1.0, 1.0, 1.0]
+target_shape: [384, 384, 384]
+orientation: LPS
+hu_window: null          # null keeps raw Hounsfield units
+image_dtype: int16
+label_dtype: uint16
+lung_labels: [10, 11, 12, 13, 14]   # TotalSegmentator lung lobes
+min_source_shape: [200, 200, 100]
+compress: true
+overwrite: false
+num_workers: 8
